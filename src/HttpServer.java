@@ -1,9 +1,12 @@
 import java.io.*;
 import java.net.*;
+import java.util.Scanner;
 
 public class HttpServer {
     public static void main(String[] args) {
-        int port = 8080;
+        Scanner sc = new Scanner(System.in);
+        System.out.print("Port: ");
+        int port = Integer.parseInt(sc.nextLine());
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Server is listening on port " + port);
