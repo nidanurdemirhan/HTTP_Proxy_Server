@@ -13,32 +13,27 @@ class ClientHandler implements Runnable {
 
     @Override
     public void run() {
-        try (
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                PrintWriter out = new PrintWriter(socket.getOutputStream(), true)
-        ) {
-            String requestLine = in.readLine();
+        try (BufferedReader inputRequest = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             PrintWriter outputMessage = new PrintWriter(socket.getOutputStream(), true)) {
+            String requestLine = inputRequest.readLine(); //Read the request message
             if (requestLine == null || requestLine.isEmpty()) {
-                sendBadRequest(out);
+                sendBadRequest(outputMessage);
                 return;
             }
 
             System.out.println("Request: " + requestLine);
 
-            // Parse the request line
             String[] requestParts = requestLine.split(" ");
             if (requestParts.length < 3) {
-                sendBadRequest(out);
+                sendBadRequest(outputMessage);
                 return;
             }
 
             String method = requestParts[0];
             String uri = requestParts[1];
-            String version = requestParts[2];
 
-            // Validate HTTP method
             if (!method.equals("GET")) {
-                sendNotImplemented(out);
+                sendNotImplemented(outputMessage);
                 return;
             }
 
@@ -49,17 +44,17 @@ class ClientHandler implements Runnable {
                 requestedSize = Integer.parseInt(sizeString);
 
                 if (requestedSize < 100 || requestedSize > 20000) {
-                    sendBadRequest(out);
+                    sendBadRequest(outputMessage);
                     return;
                 }
             } catch (NumberFormatException e) {
-                sendBadRequest(out);
+                sendBadRequest(outputMessage);
                 return;
             }
 
             // Generate and send the HTML document
             String htmlContent = generateHtmlDocument(requestedSize);
-            sendResponse(out, htmlContent);
+            sendResponse(outputMessage, htmlContent);
 
         } catch (IOException e) {
             System.err.println("Client error: " + e.getMessage());
@@ -83,6 +78,7 @@ class ClientHandler implements Runnable {
 
         // Fill the body with repeated content
         int contentSize = size - builder.length() - 14; // Account for closing tags
+
         for (int i = 0; i < contentSize; i++) {
             builder.append('a'); // Add 'a' repeatedly to fill the size
         }
@@ -92,32 +88,32 @@ class ClientHandler implements Runnable {
     }
 
     // Sends a valid HTTP response with the HTML content
-    private void sendResponse(PrintWriter out, String htmlContent) {
-        out.println("HTTP/1.1 200 OK");
-        out.println("Content-Type: text/html");
-        out.println("Content-Length: " + htmlContent.length());
-        out.println(); // Blank line separates headers from the body
-        out.print(htmlContent);
-        out.flush();
+    private void sendResponse(PrintWriter outputResponse, String documentHTML) {
+        outputResponse.println("HTTP/1.1 200 OK");
+        outputResponse.println("Content-Type: text/html");
+        outputResponse.println("Content-Length: " + documentHTML.length());
+        outputResponse.println(); // Blank line separates headers from the body
+        outputResponse.print(documentHTML);
+        outputResponse.flush();
     }
 
     // Sends a 400 Bad Request response
-    private void sendBadRequest(PrintWriter out) {
-        out.println("HTTP/1.1 400 Bad Request");
-        out.println("Content-Type: text/plain");
-        out.println("Content-Length: 11");
-        out.println();
-        out.print("Bad Request");
-        out.flush();
+    private void sendBadRequest(PrintWriter outputResponse) {
+        outputResponse.println("HTTP/1.1 400 Bad Request");
+        outputResponse.println("Content-Type: text/plain");
+        outputResponse.println("Content-Length: 11");
+        outputResponse.println();
+        outputResponse.print("Bad Request");
+        outputResponse.flush();
     }
 
     // Sends a 501 Not Implemented response
-    private void sendNotImplemented(PrintWriter out) {
-        out.println("HTTP/1.1 501 Not Implemented");
-        out.println("Content-Type: text/plain");
-        out.println("Content-Length: 15");
-        out.println();
-        out.print("Not Implemented");
-        out.flush();
+    private void sendNotImplemented(PrintWriter outputResponse) {
+        outputResponse.println("HTTP/1.1 501 Not Implemented");
+        outputResponse.println("Content-Type: text/plain");
+        outputResponse.println("Content-Length: 15");
+        outputResponse.println();
+        outputResponse.print("Not Implemented");
+        outputResponse.flush();
     }
 }

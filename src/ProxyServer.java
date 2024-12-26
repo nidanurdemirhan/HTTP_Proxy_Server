@@ -16,9 +16,6 @@ public class ProxyServer {
     public static void main(String[] args) {
         ExecutorService threadPool = Executors.newFixedThreadPool(10);
 
-
-        
-
         // Prompt user for cache size
         Scanner scanner = new Scanner(System.in);
         System.out.print("Enter cache size: ");
@@ -27,8 +24,6 @@ public class ProxyServer {
 
         // Create cache with user-specified size
         cache = new Cache(cacheSize);
-
-        
 
         try (ServerSocket serverSocket = new ServerSocket(PROXY_PORT)) {
             System.out.println("Proxy server running on port " + PROXY_PORT);
@@ -44,7 +39,6 @@ public class ProxyServer {
         }
     }
 
-
     private static void handleClient(Socket clientSocket) {
         try (InputStream clientInput = clientSocket.getInputStream();
              OutputStream clientOutput = clientSocket.getOutputStream()) {
@@ -59,12 +53,7 @@ public class ProxyServer {
                 sendError(clientOutput, 400, "Bad Request");
                 return;
             }
-
-
             System.out.println("Client request: " + requestLine);
-            
-            
-             
             // -------------------------------START OF CHECKING FORMAT
 
             // Parse the request URI
@@ -75,13 +64,11 @@ public class ProxyServer {
                 System.out.println("Error: " + parts.length);
                 return;
             }
-    
-            
+
             String absoluteURL = parts[1];
             String host = null;
             String relativeURL = "";
             int port = 0;
-
 
             // Check if the request URI is an absolute URI
             if (absoluteURL.startsWith("http://")) {
@@ -97,9 +84,7 @@ public class ProxyServer {
                     return;
                 }
             }
-    
             //System.out.println("host: " + host + ", port: " + port + ", relative: " + relativeURL);
-            
 
             // Check requested file size for incoming request to localhost:8080
             if(host.equals("localhost") && port == 8080){
@@ -120,8 +105,7 @@ public class ProxyServer {
                     return;
                 }
             }
-            // -----------------------------END OF FORMAT CHECKING 
-
+            // -----------------------------END OF FORMAT CHECKING
 
             // Read and store all headers
             StringBuilder headers = new StringBuilder();
@@ -132,16 +116,11 @@ public class ProxyServer {
                 headers.append(headerLine).append("\r\n");
             }
 
-
             // CHECK IF THE CACHE IS VALID (CONDITIONAL GET)
-            
-
-
             boolean shouldBeUpdated = false;
 
              // Serve from cache if available
-             if (cache.checkCache(absoluteURL)) {
-
+            if (cache.checkCache(absoluteURL)) {
                 // Check if the cached response is still valid
                 if (!cache.isModified(absoluteURL)) {
                     System.out.println("Cache hit: " + absoluteURL);
@@ -154,17 +133,10 @@ public class ProxyServer {
                     System.out.println("Cache hit but invalid: " + absoluteURL);
                     shouldBeUpdated = true;
                 }
-
-
-
             } else {
                 System.out.println("Cache miss: " + absoluteURL);
             }
 
-
-    
-            
-    
             // Forward the request to the target web server
             try (Socket webServerSocket = new Socket(host, port);
                  InputStream webServerInput = webServerSocket.getInputStream();
@@ -188,41 +160,27 @@ public class ProxyServer {
                     clientOutput.write(buffer, 0, bytesRead);
                     responseBuffer.write(buffer, 0, bytesRead);
                 }
-
-
                 // If the response is not cached, add it to the cache. If it is cached but invalid, update it
                 if (shouldBeUpdated) {
                     cache.updateEntry(absoluteURL, responseBuffer.toByteArray());
                 } else {
                     cache.addToCache(absoluteURL, responseBuffer.toByteArray());
                 }
-
             } catch(SocketTimeoutException e){ // Connection close due to timeout and we cache the response (we assume the response is complete)
-
                 // If the response is not cached, add it to the cache. If it is cached but invalid, update it
                 if (shouldBeUpdated) {
                     cache.updateEntry(absoluteURL, responseBuffer.toByteArray());
                 } else {
                     cache.addToCache(absoluteURL, responseBuffer.toByteArray());
                 }
-
             } catch (IOException e) {
                 sendError(clientOutput, 404, "Not Found");
                 System.err.println("Error connecting to the web server: " + e.getMessage());
             }
-
-
         } catch (IOException e) {
             System.err.println("Error handling client: " + e.getMessage());
         }
     }
-
-
-    
-
-
-    
-    
 
     private static void sendError(OutputStream clientOutput, int statusCode, String message) throws IOException {
         PrintWriter writer = new PrintWriter(clientOutput, true);
@@ -232,7 +190,4 @@ public class ProxyServer {
         writer.println(message);
         writer.flush();
     }
-
-
-    
 }

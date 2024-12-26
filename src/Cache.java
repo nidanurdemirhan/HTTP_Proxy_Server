@@ -76,7 +76,6 @@ public class Cache {
         }
     }
 
-
     private static void clearCacheFolder(File folder) {
         if (folder.exists() && folder.isDirectory()) {
             for (File file : folder.listFiles()) {
@@ -112,7 +111,6 @@ public class Cache {
         }
     }
 
-
     // Check if the response is modified or not based on the Content-Length header
     public boolean isModified(String absoluteURL) {
         // Get the cached data as a byte array
@@ -138,9 +136,4 @@ public class Cache {
         System.out.println("Warning: Content-Length header not found");
         return true;
     }
-    
-
-
-   
-    
 }
