@@ -19,6 +19,8 @@ public class Session implements Runnable {
             String strInputRequest = inputRequest.readLine(); // Read the request as String
             String[] strInputRequestParts = strInputRequest.split(" "); // Split the request into parts
 
+            System.out.println("Request: " + strInputRequest);
+
             int documentSize;
             try {
                 documentSize = Integer.parseInt(strInputRequestParts[1].substring(1)); // Retrieve the requested document size
