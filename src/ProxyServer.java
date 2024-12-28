@@ -1,118 +1,87 @@
-
 import java.io.*;
 import java.net.*;
 import java.util.Scanner;
-import java.util.concurrent.*;
 
 public class ProxyServer {
-    private static final int PROXY_PORT = 8888;
-    private static final int MAX_URI_SIZE = 9999;
-    //private static final int CACHE_SIZE = 5; //delete this later, get from user
-    private static final int SCOKET_TIMEOUT = 10000; // 10 seconds
-
-    //private static final Cache cache = new Cache(CACHE_SIZE);
-    private static Cache cache;
+    private static Cache cache; // Cache of the Proxy Server
 
     public static void main(String[] args) {
-        ExecutorService threadPool = Executors.newFixedThreadPool(10);
-
-        // Prompt user for cache size
         Scanner scanner = new Scanner(System.in);
-        System.out.print("Enter cache size: ");
-        int cacheSize = scanner.nextInt();
+        System.out.print("Enter cache size: "); // Ask the user for the cache size
+        int cacheSize = scanner.nextInt(); // Read the input
         scanner.close();
 
-        // Create cache with user-specified size
-        cache = new Cache(cacheSize);
+        cache = new Cache(cacheSize); // Create a cache with the given cache size
 
-        try (ServerSocket serverSocket = new ServerSocket(PROXY_PORT)) {
-            System.out.println("Proxy server running on port " + PROXY_PORT);
-
+        try (ServerSocket serverSocket = new ServerSocket(8888)) { // Start the Proxy Server with port 8888
+            System.out.println("Proxy server is running on port 8888");
             while (true) {
-                Socket clientSocket = serverSocket.accept();
-                threadPool.execute(() -> handleClient(clientSocket));
+                Socket socket = serverSocket.accept(); // Accept the client connections
+                new Thread(() -> proxySession(socket)).start(); // Handle the client request in a new thread
             }
-        } catch (IOException e) {
-            System.err.println("Proxy server error: " + e.getMessage());
-        } finally {
-            threadPool.shutdown();
+        } catch (IOException e) { // IO Exception for Socket
+            System.out.println(e.getMessage());
         }
     }
 
-    private static void handleClient(Socket clientSocket) {
-        try (InputStream clientInput = clientSocket.getInputStream();
-             OutputStream clientOutput = clientSocket.getOutputStream()) {
-    
-            BufferedReader reader = new BufferedReader(new InputStreamReader(clientInput));
+    // Input request is the request came from the client, output response will be the response of the server
+    private static void proxySession(Socket socket) {
+        try (BufferedReader inputRequest = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             OutputStream outputResponse = socket.getOutputStream()) {
 
-            // Read the request line
-            String requestLine = reader.readLine();
-
-            //We do not support https requests and they start with CONNECT, we only accept starting with GET
-            if (requestLine == null || !requestLine.startsWith("GET")) {
-                sendError(clientOutput, 400, "Bad Request");
-                return;
-            }
+            String requestLine = inputRequest.readLine();
             System.out.println("Client request: " + requestLine);
-            // -------------------------------START OF CHECKING FORMAT
 
-            // Parse the request URI
-            String[] parts = requestLine.split(" ");
-
-            if (parts.length < 2) {
-                sendError(clientOutput, 400, "Bad Request");
-                System.out.println("Error: " + parts.length);
+            String[] strInputRequestParts = requestLine.split(" ");
+            if (strInputRequestParts.length < 2 || !requestLine.startsWith("GET")) {
+                sendError(outputResponse, 400, "Bad Request");
                 return;
             }
 
-            String absoluteURL = parts[1];
-            String host = null;
-            String relativeURL = "";
-            int port = 0;
+            String absoluteURL = strInputRequestParts[1]; // Full URL of the client request
+            String host = ""; // Host to be directed
+            String requestedSize = ""; // Requested size of the HTML document
+            int port = 0; // Port of the host to be directed
 
-            // Check if the request URI is an absolute URI
-            if (absoluteURL.startsWith("http://")) {
+            if (absoluteURL.startsWith("http://")) { // Check if the URL states HTTP protocol
                 try {
-                    // Extract host and port from the absolute URI
-                    URL urlObject = new URL(parts[1]);
-                    host = urlObject.getHost();
-                    port = (urlObject.getPort() != -1) ? urlObject.getPort() : 80; // Default port 80 if not specified
-                    relativeURL = urlObject.getPath() + (urlObject.getQuery() != null ? "?" + urlObject.getQuery() : ""); // Convert to relative path
-                } catch (MalformedURLException e) {
-                    sendError(clientOutput, 400, "Bad Request");
-                    System.out.println("Error parsing absolute URI: " + absoluteURL);
+                    String urlWithoutHTTP = absoluteURL.substring(7); // Eliminate the HTTP protocol part, as it is useless
+                    int slashIndex = urlWithoutHTTP.indexOf('/'); // Find the index of the backslash
+                    // If there's a backslash, assume the rest indicates the file size. Else, no file size stated
+                    String hostAndPort = (slashIndex != -1) ? urlWithoutHTTP.substring(0, slashIndex) : urlWithoutHTTP;
+                    requestedSize = (slashIndex != -1) ? urlWithoutHTTP.substring(slashIndex) : "";
+
+                    int colonIndex = hostAndPort.indexOf(':'); // Find the index of the :
+                    host = hostAndPort.substring(0, colonIndex); // Before : indicates host IP (localhost)
+                    port = Integer.parseInt(hostAndPort.substring(colonIndex + 1)); // Rest indicates the port number
+                } catch (Exception e) {
+                    System.out.println("Invalid URL received: " + absoluteURL); // Sometimes, invalid URLs can be received
+                }
+            }
+
+            if(host.equals("localhost") && port == 8080) { // Check if the request is in localhost:8080 format
+                int htmlFileSize;
+                try {
+                    htmlFileSize = Integer.parseInt(requestedSize.substring(1)); // Convert the file size into integer
+                    if (htmlFileSize > 9999) { // Check whether requested URI is too long
+                        sendError(outputResponse, 414, "Request-URI Too Long"); // Send error code 401
+                        System.out.println("Error file size is greater than 9999");
+                        return;
+                    }
+                } catch (NumberFormatException e) { // If conversion to integer fails, then it means invalid request
+                    sendError(outputResponse, 400, "Bad Request");
                     return;
                 }
             }
-            //System.out.println("host: " + host + ", port: " + port + ", relative: " + relativeURL);
 
-            // Check requested file size for incoming request to localhost:8080
-            if(host.equals("localhost") && port == 8080){
-                String fileSizeString = relativeURL.substring(1); // Remove leading slash
-
-                int fileSize = 0;
-                try {
-                    fileSize = Integer.parseInt(fileSizeString);
-                } catch (NumberFormatException e) {
-                    sendError(clientOutput, 400, "Bad Request");
-                    System.out.println("Error parsing file size: " + fileSizeString);
-                    return;
-                }
-    
-                if (fileSize > MAX_URI_SIZE) {
-                    sendError(clientOutput, 414, "Request-URI Too Long");
-                    System.out.println("Error file size is greater than 9999: " + fileSize);
-                    return;
-                }
-            }
-            // -----------------------------END OF FORMAT CHECKING
+            // BURADA KALDIM!!!----------------------------------------------------------------------------------------------
 
             // Read and store all headers
             StringBuilder headers = new StringBuilder();
             String headerLine;
             ByteArrayOutputStream responseBuffer = new ByteArrayOutputStream();
 
-            while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
+            while ((headerLine = inputRequest.readLine()) != null && !headerLine.isEmpty()) {
                 headers.append(headerLine).append("\r\n");
             }
 
@@ -126,7 +95,7 @@ public class ProxyServer {
                     System.out.println("Cache hit: " + absoluteURL);
                     byte[] cachedData = cache.getFromCache(absoluteURL);
                     if (cachedData != null) {
-                        clientOutput.write(cachedData);
+                        outputResponse.write(cachedData);
                         return;
                     }
                 } else {
@@ -143,21 +112,21 @@ public class ProxyServer {
                  OutputStream webServerOutput = webServerSocket.getOutputStream()) {
 
                 // Set socket timeout
-                webServerSocket.setSoTimeout(SCOKET_TIMEOUT);
-    
+                webServerSocket.setSoTimeout(10000);
+
                 PrintWriter webServerWriter = new PrintWriter(webServerOutput, true);
-    
+
                 // Send the relative request line and headers to the web server
-                webServerWriter.print("GET " + relativeURL + " HTTP/1.1\r\n"); // Use \r\n
+                webServerWriter.print("GET " + requestedSize + " HTTP/1.1\r\n"); // Use \r\n
                 webServerWriter.print(headers.toString()); // Forward all headers
                 webServerWriter.println(); // Blank line to end the header section
                 webServerWriter.flush();
-    
+
                 // Relay the response back to the client
                 byte[] buffer = new byte[4096];
                 int bytesRead;
                 while ((bytesRead = webServerInput.read(buffer)) != -1) {
-                    clientOutput.write(buffer, 0, bytesRead);
+                    outputResponse.write(buffer, 0, bytesRead);
                     responseBuffer.write(buffer, 0, bytesRead);
                 }
                 // If the response is not cached, add it to the cache. If it is cached but invalid, update it
@@ -174,7 +143,7 @@ public class ProxyServer {
                     cache.addToCache(absoluteURL, responseBuffer.toByteArray());
                 }
             } catch (IOException e) {
-                sendError(clientOutput, 404, "Not Found");
+                sendError(outputResponse, 404, "Not Found");
                 System.err.println("Error connecting to the web server: " + e.getMessage());
             }
         } catch (IOException e) {
