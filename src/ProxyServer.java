@@ -1,5 +1,7 @@
 import java.io.*;
 import java.net.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class ProxyServer {
@@ -28,13 +30,18 @@ public class ProxyServer {
     private static void proxySession(Socket socket) {
         try (BufferedReader inputRequest = new BufferedReader(new InputStreamReader(socket.getInputStream()));
              OutputStream outputResponse = socket.getOutputStream()) {
+            String strInputRequest = inputRequest.readLine();
 
-            String requestLine = inputRequest.readLine();
-            System.out.println("Client request: " + requestLine);
+            if (strInputRequest == null) { //Sometimes request can be null, so return
+                return;
+            }
 
-            String[] strInputRequestParts = requestLine.split(" ");
-            if (strInputRequestParts.length < 2 || !requestLine.startsWith("GET")) {
-                sendError(outputResponse, 400, "Bad Request");
+            String[] strInputRequestParts = strInputRequest.split(" ");
+            System.out.println("Client request: " + strInputRequest);
+
+
+            if (strInputRequestParts.length < 2 || !strInputRequest.startsWith("GET")) {
+                sendErrorResponse(outputResponse, 400, "Bad Request");
                 return;
             }
 
@@ -59,104 +66,93 @@ public class ProxyServer {
                 }
             }
 
-            if(host.equals("localhost") && port == 8080) { // Check if the request is in localhost:8080 format
+            if (host.equals("localhost") && port == 8080) { // Check if the request is in localhost:8080 format
                 int htmlFileSize;
                 try {
                     htmlFileSize = Integer.parseInt(requestedSize.substring(1)); // Convert the file size into integer
                     if (htmlFileSize > 9999) { // Check whether requested URI is too long
-                        sendError(outputResponse, 414, "Request-URI Too Long"); // Send error code 401
+                        sendErrorResponse(outputResponse, 414, "Request-URI Too Long"); // Send error code 414
                         System.out.println("Error file size is greater than 9999");
                         return;
                     }
                 } catch (NumberFormatException e) { // If conversion to integer fails, then it means invalid request
-                    sendError(outputResponse, 400, "Bad Request");
+                    sendErrorResponse(outputResponse, 400, "Bad Request");
                     return;
                 }
             }
 
-            // BURADA KALDIM!!!----------------------------------------------------------------------------------------------
+            boolean shouldBeUpdated = false; // Check if the HTML document associated with the URL should be updated
 
-            // Read and store all headers
-            StringBuilder headers = new StringBuilder();
-            String headerLine;
-            ByteArrayOutputStream responseBuffer = new ByteArrayOutputStream();
-
-            while ((headerLine = inputRequest.readLine()) != null && !headerLine.isEmpty()) {
-                headers.append(headerLine).append("\r\n");
-            }
-
-            // CHECK IF THE CACHE IS VALID (CONDITIONAL GET)
-            boolean shouldBeUpdated = false;
-
-             // Serve from cache if available
-            if (cache.checkCache(absoluteURL)) {
-                // Check if the cached response is still valid
-                if (!cache.isModified(absoluteURL)) {
-                    System.out.println("Cache hit: " + absoluteURL);
-                    byte[] cachedData = cache.getFromCache(absoluteURL);
-                    if (cachedData != null) {
-                        outputResponse.write(cachedData);
+            // Serve from cache if available
+            if (cache.checkCache(absoluteURL)) { // Check if the URL exists in Cache
+                if (!cache.isModified(absoluteURL)) { // Check if the URL is modified
+                    System.out.println("Cache hit: " + absoluteURL); // Cache is hit. No need to forward anything to HTTP
+                    byte[] cachedHtmlDoc = cache.getFromCache(absoluteURL); // Retrieve the document from the Cache
+                    if (cachedHtmlDoc != null) { // Check if the document is null. If not null, we can display the document
+                        outputResponse.write(cachedHtmlDoc); // Send the HTML document to client
                         return;
                     }
-                } else {
-                    System.out.println("Cache hit but invalid: " + absoluteURL);
-                    shouldBeUpdated = true;
+                } else { // Cache is found, however it is modified. Meaning that we should update the cache
+                    System.out.println("Cache hit, but modified: " + absoluteURL);
+                    shouldBeUpdated = true; //
                 }
             } else {
                 System.out.println("Cache miss: " + absoluteURL);
             }
 
-            // Forward the request to the target web server
-            try (Socket webServerSocket = new Socket(host, port);
-                 InputStream webServerInput = webServerSocket.getInputStream();
-                 OutputStream webServerOutput = webServerSocket.getOutputStream()) {
+            List<String> headers = new ArrayList<>(); // List of all headers received from the client
+            String headerLine;
+            ByteArrayOutputStream responseBuffer = new ByteArrayOutputStream();
 
-                // Set socket timeout
-                webServerSocket.setSoTimeout(10000);
+            // Store all the headers received from the client, so we can forward them to HTTP server
+            while ((headerLine = inputRequest.readLine()) != null && !headerLine.isEmpty()) {
+                headers.add(headerLine);
+            }
 
-                PrintWriter webServerWriter = new PrintWriter(webServerOutput, true);
+            try (Socket proxyHttpSocket = new Socket(host, port); // Connect to HTTP server for miss or modified cache
+                 InputStream inputHTTP = proxyHttpSocket.getInputStream(); // Input request to the HTTP server
+                 PrintWriter webServerWriter = new PrintWriter(proxyHttpSocket.getOutputStream(), true)) { // Output response from the HTTP server
 
-                // Send the relative request line and headers to the web server
-                webServerWriter.print("GET " + requestedSize + " HTTP/1.1\r\n"); // Use \r\n
-                webServerWriter.print(headers.toString()); // Forward all headers
-                webServerWriter.println(); // Blank line to end the header section
+                proxyHttpSocket.setSoTimeout(10000); // Timeout for 10 seconds
+
+                // All headers received from the client is forwarded to HTTP server with correct format
+                String headersString = String.join("\r\n", headers) + "\r\n";
+
+                webServerWriter.print("GET " + requestedSize + " HTTP/1.1\r\n"); // Forward the URL to the HTTP server
+                webServerWriter.print(headersString + "\n"); // Forward all headers to the HTTP server
                 webServerWriter.flush();
 
-                // Relay the response back to the client
-                byte[] buffer = new byte[4096];
+                byte[] buffer = new byte[4096]; // Initialize for file reading
                 int bytesRead;
-                while ((bytesRead = webServerInput.read(buffer)) != -1) {
-                    outputResponse.write(buffer, 0, bytesRead);
+                while ((bytesRead = inputHTTP.read(buffer)) != -1) { // Read the document received from the HTTP server
+                    outputResponse.write(buffer, 0, bytesRead); // Forward this HTML document to client
                     responseBuffer.write(buffer, 0, bytesRead);
                 }
-                // If the response is not cached, add it to the cache. If it is cached but invalid, update it
-                if (shouldBeUpdated) {
+                if (shouldBeUpdated) { // If the URL received from the client is cache hit but modified, update the cache
                     cache.updateEntry(absoluteURL, responseBuffer.toByteArray());
-                } else {
+                } else { // If the URL received from is cache miss, add it to the cache
                     cache.addToCache(absoluteURL, responseBuffer.toByteArray());
                 }
-            } catch(SocketTimeoutException e){ // Connection close due to timeout and we cache the response (we assume the response is complete)
-                // If the response is not cached, add it to the cache. If it is cached but invalid, update it
-                if (shouldBeUpdated) {
+            } catch (SocketTimeoutException e) { // Connection close due to timeout, and we cache the response (we assume the response is complete)
+                if (shouldBeUpdated) { // If the URL received from the client is cache hit but modified, update the cache
                     cache.updateEntry(absoluteURL, responseBuffer.toByteArray());
-                } else {
+                } else { // If the URL received from is cache miss, add it to the cache
                     cache.addToCache(absoluteURL, responseBuffer.toByteArray());
                 }
-            } catch (IOException e) {
-                sendError(outputResponse, 404, "Not Found");
-                System.err.println("Error connecting to the web server: " + e.getMessage());
+            } catch (IOException e) { // Connection error occurred between Proxy and HTTP, HTTP server may not be running
+                sendErrorResponse(outputResponse, 404, "Not Found"); // Send Not Found 404 error to client
+                System.out.println("Cannot establish connection with HTTP server");
             }
-        } catch (IOException e) {
-            System.err.println("Error handling client: " + e.getMessage());
+        } catch (IOException e) { // Connection error occurred between Proxy and Client, Socket Exception
+            System.out.println("Connection error with Client Socket");
         }
     }
 
-    private static void sendError(OutputStream clientOutput, int statusCode, String message) throws IOException {
-        PrintWriter writer = new PrintWriter(clientOutput, true);
-        writer.println("HTTP/1.0 " + statusCode + " " + message);
-        writer.println("Content-Type: text/plain");
-        writer.println();
-        writer.println(message);
-        writer.flush();
+    private static void sendErrorResponse(OutputStream clientOutput, int statusCode, String message) throws IOException {
+        PrintWriter outputWriter = new PrintWriter(clientOutput, true); // Create an error response with Output Writer
+        outputWriter.println("HTTP/1.0 " + statusCode + " " + message); // Determine the error code and message
+        outputWriter.println("Content-Type: text/plain\n"); // Determine the HTML content type
+        outputWriter.println(message); // Add the content, which is the message
+        outputWriter.flush(); // Flush the output response, so the HTML document can be seen on the browser
     }
 }
