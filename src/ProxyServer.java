@@ -84,10 +84,10 @@ public class ProxyServer {
             boolean shouldBeUpdated = false; // Check if the HTML document associated with the URL should be updated
 
             // Serve from cache if available
-            if (cache.checkCache(absoluteURL)) { // Check if the URL exists in Cache
-                if (!cache.isModified(absoluteURL)) { // Check if the URL is modified
+            if (cache.isUrlExistsInCache(absoluteURL)) { // Check if the URL exists in Cache
+                if (!cache.isCacheFileModified(absoluteURL)) { // Check if the URL is modified
                     System.out.println("Cache hit: " + absoluteURL); // Cache is hit. No need to forward anything to HTTP
-                    byte[] cachedHtmlDoc = cache.getFromCache(absoluteURL); // Retrieve the document from the Cache
+                    byte[] cachedHtmlDoc = cache.getHtmlDocFromCache(absoluteURL); // Retrieve the document from the Cache
                     if (cachedHtmlDoc != null) { // Check if the document is null. If not null, we can display the document
                         outputResponse.write(cachedHtmlDoc); // Send the HTML document to client
                         return;
@@ -129,15 +129,15 @@ public class ProxyServer {
                     responseBuffer.write(buffer, 0, bytesRead);
                 }
                 if (shouldBeUpdated) { // If the URL received from the client is cache hit but modified, update the cache
-                    cache.updateEntry(absoluteURL, responseBuffer.toByteArray());
+                    cache.updateCacheFile(absoluteURL, responseBuffer.toByteArray());
                 } else { // If the URL received from is cache miss, add it to the cache
-                    cache.addToCache(absoluteURL, responseBuffer.toByteArray());
+                    cache.addHtmlDocToCache(absoluteURL, responseBuffer.toByteArray());
                 }
             } catch (SocketTimeoutException e) { // Connection close due to timeout, and we cache the response (we assume the response is complete)
                 if (shouldBeUpdated) { // If the URL received from the client is cache hit but modified, update the cache
-                    cache.updateEntry(absoluteURL, responseBuffer.toByteArray());
+                    cache.updateCacheFile(absoluteURL, responseBuffer.toByteArray());
                 } else { // If the URL received from is cache miss, add it to the cache
-                    cache.addToCache(absoluteURL, responseBuffer.toByteArray());
+                    cache.addHtmlDocToCache(absoluteURL, responseBuffer.toByteArray());
                 }
             } catch (IOException e) { // Connection error occurred between Proxy and HTTP, HTTP server may not be running
                 sendErrorResponse(outputResponse, 404, "Not Found"); // Send Not Found 404 error to client
